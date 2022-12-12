@@ -21,3 +21,5 @@ Para buildar o projeto é necessário utilizar o PlatformIO. Clonar o repositór
 A seguir temos uma foto do circuito montado fisicamente:
 
 <img src="circuito.png"/>
+
+Links extrenos úteis: Playlist do Youtube Arduino e ESP32 - https://www.youtube.com/playlist?list=PLzvRQMJ9HDiQ3OIuBWCEW6yE0S0LUWhGU
