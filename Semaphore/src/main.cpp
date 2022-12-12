@@ -10,12 +10,8 @@ typedef enum { kRedState = 0, kYellowState = 1, kGreenState = 2 } tState;
 struct led_task_parameters_t
 {
   gpio_num_t led_gpio;
-  // TickType_t blink_time;
+  bool led_value;
 };
-
-static led_task_parameters_t red_led_gpio = {LED_RED}; // {LED_RED, 500};
-static led_task_parameters_t yellow_led_gpio = {LED_YELLOW}; // {LED_BLUE, 500};
-static led_task_parameters_t green_led_gpio = {LED_GREEN}; // {LED_GREEN, 500};
 
 struct sStateTableEntry {
     tLight light; // all states have associated lights
@@ -24,6 +20,9 @@ struct sStateTableEntry {
     tState timeoutEvent;// ... when timeout occurs
 };
 
+static led_task_parameters_t led_gpio[] = {
+  {LED_RED, LOW}, {LED_YELLOW, LOW}, {LED_GREEN, LOW}
+};
 tState currentState = kGreenState;
 bool auto_semaphore = false;
 
@@ -33,27 +32,15 @@ String light_to_string(tLight light, bool turnOn){
     {
       case kRedLight:
           s = "Red";
-          if (turnOn) {
-            gpio_set_level(LED_RED, HIGH);
-          } else {
-            gpio_set_level(LED_RED, LOW);
-          }
-          break;
-      case kGreenLight:
-          s = "Green";
-          if (turnOn) {
-            gpio_set_level(LED_GREEN, HIGH);
-          } else {
-            gpio_set_level(LED_GREEN, LOW);
-          }
+          led_gpio[0].led_value = turnOn;
           break;
       case kYellowLight:
           s = "Yellow";
-          if (turnOn) {
-            gpio_set_level(LED_YELLOW, HIGH);
-          } else {
-            gpio_set_level(LED_YELLOW, LOW);
-          }
+          led_gpio[1].led_value = turnOn;
+          break;
+      case kGreenLight:
+          s = "Green";
+          led_gpio[2].led_value = turnOn;
           break;
       default:
           break;
@@ -109,14 +96,11 @@ tState HandleEventTimeout(tState currentState)
 }
 
 void read_serial(void *pvParameter)
-{
-  Serial.println("Enter a line finishing with Enter:\n");
-  
+{  
   while (1) {
-    // Serial.setTimeout(5000);
     Serial.println("Type an event (Go, Stop, Timeout) > ");
     while (Serial.available() == 0) {}     //wait for data available
-    String teststr = Serial.readString();  //read until timeout
+    String teststr = Serial.readStringUntil('\n'); // Serial.readString();  //read until timeout
     teststr.trim();                        // remove any \r \n whitespace at the end of the String
     if (teststr == "Go") {
       currentState = HandleEventGo(currentState);
@@ -126,44 +110,62 @@ void read_serial(void *pvParameter)
       currentState = HandleEventTimeout(currentState);
     } else if (teststr == "Auto") {
       auto_semaphore = !auto_semaphore;
-      Serial.println("Auto mode entered!");
+      if (auto_semaphore) {
+        Serial.println("Auto mode entered!");
+      } else {
+        Serial.println("Auto mode exit!");
+      }
     }
-    // vTaskDelay(10 / portTICK_PERIOD_MS); 
   }
   vTaskDelete( NULL );
 }
 
+void set_semaphore(led_task_parameters_t * led_semaphore){
+    gpio_set_level(led_semaphore[0].led_gpio, led_semaphore[0].led_value);
+    gpio_set_level(led_semaphore[1].led_gpio, led_semaphore[1].led_value);
+    gpio_set_level(led_semaphore[2].led_gpio, led_semaphore[2].led_value);
+}
+
 void led_task(void *pvParameter)
 {
+  led_task_parameters_t * led_semaphore = ((led_task_parameters_t *)pvParameter);
+
+  gpio_reset_pin(LED_RED);
+  gpio_reset_pin(LED_YELLOW);
+  gpio_reset_pin(LED_GREEN);
+
+  gpio_set_direction(LED_YELLOW, GPIO_MODE_OUTPUT);
+  gpio_set_direction(LED_RED, GPIO_MODE_OUTPUT);
+  gpio_set_direction(LED_GREEN, GPIO_MODE_OUTPUT);
+
   while (1) {
     if (auto_semaphore) {
       currentState = HandleEventGo(currentState);
+      set_semaphore(led_semaphore);
       delay(1000);
       currentState = HandleEventStop(currentState);
+      set_semaphore(led_semaphore);
       delay(1000);
       currentState = HandleEventTimeout(currentState);
+      set_semaphore(led_semaphore);
       delay(1000);
+    } else {
+      set_semaphore(led_semaphore);
     }
-    // led_value = !led_value;
-    // vTaskDelay(blink_time / portTICK_PERIOD_MS);
     vTaskDelay(10 / portTICK_PERIOD_MS); 
-    // vTaskDelete( NULL );
   }
+  vTaskDelete( NULL );
 }
 
 void setup ()
 {
   Serial.begin(9600);
-  // Serial.println("Hello! I'm using Zephyr %s on %s, a %s board. \n\n", KERNEL_VERSION_STRING, CONFIG_BOARD, CONFIG_ARCH);
+  Serial.setTimeout(5000);
 
   LightOn(kGreenLight);
   LightOff(kRedLight);
   LightOff(kYellowLight);
 
-  gpio_set_direction(LED_GREEN, GPIO_MODE_OUTPUT);
-  gpio_set_direction(LED_YELLOW, GPIO_MODE_OUTPUT);
-  gpio_set_direction(LED_RED, GPIO_MODE_OUTPUT);
-  
   xTaskCreate(
     &read_serial, // task function
     "read_input_string", // task name
@@ -177,7 +179,7 @@ void setup ()
     &led_task, // task function
     "red_led_task", // task name
     2048, // stack size in words
-    NULL, //&red_led_gpio, // pointer to parameters
+    led_gpio, //&red_led_gpio, // pointer to parameters
     5, // priority
     NULL); // out pointer to task handle
 }
